@@ -1,6 +1,5 @@
 package triopu.qtint;
 
-import android.annotation.SuppressLint;
 import android.bluetooth.BluetoothGattCharacteristic;
 import android.bluetooth.BluetoothGattService;
 import android.content.BroadcastReceiver;
@@ -66,8 +65,9 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
     private double minX,maxX,minY,maxY;
 
     private boolean connected = false;
+    private boolean record = false;
 
-    private String fileName = "defaultName";
+    private String fileName = "Percobaan2";
 
     private BluetoothLeService bluetoothLeService;
 
@@ -105,36 +105,29 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
 
     private int midWave;
 
-    private class SignalProcessing extends AsyncTask<int[],int[],int[]>{
+    private ArrayList<Integer> processedECGData = new ArrayList<Integer>();
 
+    int second;
+    BroadcastReceiver.PendingResult result;
+
+    private class SignalProcessing extends AsyncTask<ArrayList<Integer>,int[],ArrayList<Integer>>{
 
         @Override
         protected void onPreExecute() {
             super.onPreExecute();
         }
 
-        //@SuppressLint("DefaultLocale")
         @Override
-        protected int[] doInBackground(int[]... integers) {
-            int[] data = integers[0];
+        protected ArrayList<Integer> doInBackground(ArrayList<Integer>... integers) {
+            ArrayList<Integer> data = integers[0];
+            //Adding left data
+            //processedECGData.addAll(data);
             int lpf,hpf,drv,sqr,mwi;
             lp = new LowPassFilter(300);
             hp = new HighPassFilter();
             dr = new Derivative();
             sq = new Squaring();
             mw = new MovingWindowIntegration();
-
-            File sdCard = Environment.getExternalStorageDirectory();
-            File dir = new File (sdCard.getAbsolutePath());
-            //dir.mkdirs();
-            File file = new File(dir, "/DataEKG/ECGProcessT2.txt");
-            Log.d("File is", String.valueOf(file));
-
-            try {
-                fw = new FileWriter(file, true);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
 
             List<Integer> lpVal = new ArrayList<Integer>();
             List<Integer> hpVal = new ArrayList<Integer>();
@@ -143,9 +136,9 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
             List<Integer> mwVal = new ArrayList<Integer>();
             List<Integer> mECG = new ArrayList<Integer>();
             List<Integer> dataECG = new ArrayList<Integer>();
-            for (int aData : data) {
-                dataECG.add(aData); mECG.add(aData);
-                lpf = (int) lp.filter(aData);       lpVal.add(lpf);
+            for (int i = 0; i < data.size(); i++) {
+                dataECG.add(data.get(i)); mECG.add(data.get(i));
+                lpf = (int) lp.filter(data.get(i)); lpVal.add(lpf);
                 hpf = (int) hp.filter(lpf);         hpVal.add(hpf);
                 drv = dr.derive(hpf);               drVal.add(drv);
                 sqr = sq.square(drv);               sqVal.add(sqr);
@@ -204,10 +197,10 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
                 int leftRem = peakIndex.get(i+1)-midWave;
                 leftRem = peakIndex.get(i) - leftRem;
                 if(leftRem < 0) leftRem = 0;
-                if(midWave > data.length)midWave = data.length-1;
+                if(midWave > data.size())midWave = data.size()-1;
                 Log.d("MID-Wave",String.valueOf(midWave)+" leftRem: "+String.valueOf(leftRem)+" Right: "+String.valueOf(rightBound.get(i)));
                 while (true){
-                    mECG.set(leftRem,data[midWave]);
+                    mECG.set(leftRem,data.get(midWave));
                     leftRem += 1;
                     if(leftRem>rightBound.get(i)) break;
                 }
@@ -222,6 +215,17 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
                 ecgData.add(dataECG.get(i));
                 ecgDataR.add(mECG.get(i));
             }
+
+            //Save unused Data
+            int unused = midWave;
+            processedECGData = new ArrayList<Integer>();
+            boolean unn = true;
+            while (unn){
+                if(unused > dataECG.size()-2) unn = false;
+                processedECGData.add(dataECG.get(unused));
+                unused += 1;
+            }
+            Log.d("TheData Left", String.valueOf(processedECGData.size()));
 
             List<Integer> lpValT = new ArrayList<Integer>();
             List<Integer> drValT = new ArrayList<Integer>();
@@ -251,56 +255,94 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
 
             Log.d("Threshold is", String.valueOf(thrT));
 
-            List<Integer> posRegT = new ArrayList<Integer>();
-            for (int i = 0; i<mwTT.size();i++){
-                if(mwTT.get(i)>thrT)posRegT.add(1);
-                else posRegT.add(0);
-            }
-
+            int alpha = 1;
             List<Integer> leftBoundT = new ArrayList<Integer>();
             List<Integer> rightBoundT = new ArrayList<Integer>();
+            List<Integer> posRegT = new ArrayList<Integer>();
+            List<Integer> endT = new ArrayList<Integer>();
 
-            for (int i = 0; i<posRegT.size()-1;i++){
-                if(posRegT.get(i+1)-posRegT.get(i) == 1)leftBoundT.add(i);
-                else if(posRegT.get(i+1)-posRegT.get(i) == -1)rightBoundT.add(i);
-                if(rightBoundT.size()>0&&leftBoundT.size()>0) {
-                    if (rightBoundT.get(0) < leftBoundT.get(0)){
-                        rightBoundT.remove(0);
+            for(int i = 0; i < peakIndex.size()-1;i++){
+                boolean k = true;
+                int iter = 0;
+                int indT = 0;
+                while (k){
+                    posRegT = new ArrayList<Integer>();
+                    int searchEnd;
+
+                    if(i == (peakIndex.size()-2)){
+                        searchEnd = midWave;
+                        Log.d("SEndE",String.valueOf(searchEnd)+" i: "+String.valueOf(i) + " START: "+String.valueOf(peakIndex.get(i))+" numbP: "+String.valueOf(peakIndex.size()));
+                    }
+                    else{
+                        searchEnd = peakIndex.get(i+1);
+                        Log.d("SEnd",String.valueOf(searchEnd)+" i: "+String.valueOf(i)+ " START: "+String.valueOf(peakIndex.get(i))+" numbP: "+String.valueOf(peakIndex.size()));
+                    }
+
+                    for (int m = peakIndex.get(i); m < searchEnd-1; m++) {
+                        if (mwTT.get(m) > thrT) posRegT.add(1);
+                        else posRegT.add(0);
+                    }
+
+                    leftBoundT = new ArrayList<Integer>();
+                    rightBoundT = new ArrayList<Integer>();
+
+                    int n;
+                    for (n = 0; n < posRegT.size() - 1; n++) {
+                        if (posRegT.get(n + 1) - posRegT.get(n) == 1) leftBoundT.add(n);
+                        else if (posRegT.get(n + 1) - posRegT.get(n) == -1) rightBoundT.add(n);
+                        if (rightBoundT.size() > 0 && leftBoundT.size() > 0) {
+                            if (rightBoundT.get(0) < leftBoundT.get(0)) {
+                                rightBoundT.remove(0);
+                                Log.d("Removing",String.valueOf(rightBoundT.get(0)));
+                            }
+                        }
+                    }
+
+                    iter += 1;
+
+                    Log.d("Thd", String.valueOf(thrT));
+
+                    if(rightBoundT.size() == 1) indT = n;
+                    if(rightBoundT.size()<1) thrT = thrT * (alpha - 0.1);
+                    if(rightBoundT.size()>1){
+                        int peakRef = peakIndex.get(i) + 60;
+                        int minVal = Math.abs(rightBoundT.get(0)- peakRef); // Keeps a running count of the smallest value so far
+                        int minIdx = 0; // Will store the index of minVal
+                        for(int idx=1; idx < rightBoundT.size(); idx++) {
+                            if(Math.abs(rightBoundT.get(idx)- peakRef) < minVal) {
+                                minVal = Math.abs(rightBoundT.get(idx)- peakRef);;
+                                minIdx = idx;
+                            }
+                        }
+                        indT = minIdx;
+                    }
+                    if(iter > 10){
+                        k = false;
+                        if(i == peakIndex.size()) indT = midWave;
+                        else indT = peakIndex.get(i+1)+peakIndex.get(i);
                     }
                 }
+                endT.add(indT);
             }
-
-            int k = 0;
-            Log.d("T-End",String.valueOf(rightBoundT));
 
             Log.d("Number of Peak",String.valueOf(peakIndex.size()));
-            Log.d("Number of T-end", String.valueOf(rightBoundT.size()));
+            Log.d("Number of T-end", String.valueOf(endT.size()));
+            Log.d("peak1",String.valueOf(peakIndex));
+            Log.d("peak2",String.valueOf(endT));
 
-
-            while(true){
-                if(rightBoundT.size() < (peakIndex.size()-1)) break;
-                if(rightBoundT.size() == (peakIndex.size()-1)) break;
-                if((k+1)>rightBoundT.size())break;
-                if(rightBoundT.get(k+1)-rightBoundT.get(k) < 50) rightBoundT.remove(k);
-                k += 1;
-            }
-
-            for (int i = 0; i<ecgData.size();i++) {
-                printFormat = String.format("%d\t%d\t%d\t%d\t%d\t%d\t%d", ecgData.get(i),ecgDataR.get(i),lpValT.get(i),drValT.get(i),sqValT.get(i),mwValT.get(i),posRegT.get(i));
+            for (int i = 0; i < ecgData.size()-1;i++) {
                 try {
+                    printFormat = String.format("%d\t%d", ecgData.get(i),ecgDataR.get(i));
+                    //printFormat = String.format("%d\t%d\t%d\t%d\t%d\t%d", ecgData.get(i),ecgDataR.get(i),lpValT.get(i),drValT.get(i),sqValT.get(i),mwValT.get(i));
+                    Log.d("Print",printFormat);
                     fw.append(printFormat).append("\n");
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
             }
-            try {
-                fw.flush();
-                fw.close();
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+
+            result.finish();
             return data;
-            //return null;
         }
 
         private void cancelDelay(List<Integer> arrayList, int numberDelay){
@@ -318,12 +360,12 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
             return sum;
         }
 
-        private int findPeak(int[] theData, int minBound, int maxBound){
+        private int findPeak(ArrayList<Integer> theData, int minBound, int maxBound){
             int peak = 0;
             int k = 0;
             for(int i = minBound;i < maxBound; i++){
-                if(theData[i]>peak){
-                    peak = theData[i];
+                if(theData.get(i)>peak){
+                    peak = theData.get(i);
                     k = i+1;
                 }
             }
@@ -348,7 +390,7 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
         }
 
         @Override
-        protected void onPostExecute(int[] integers) {
+        protected void onPostExecute(ArrayList integers) {
             //super.onPostExecute(integers);
         }
     }
@@ -361,7 +403,6 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
             if (BluetoothLeService.ACTION_GATT_CONNECTED.equals(action)) {  // ACTION_GATT_CONNECTED: connected to a GATT server.
                 connected = true;
                 Toast.makeText(getApplicationContext(), "Connected!", Toast.LENGTH_LONG).show();
-                startTime = 0;
                 invalidateOptionsMenu();
             } else if (BluetoothLeService.ACTION_GATT_DISCONNECTED.equals(action)) { // ACTION_GATT_DISCONNECTED: disconnected from a GATT server.
                 connected = false;
@@ -374,6 +415,21 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
                 String[] items = incomeData.split("\\*");
                 for (String item : items) {
                     if (item.length() == 3) {
+                        graphIt(item);
+                        if(record) {
+                            second = getTime(startTime);
+                            if (second < 6) {
+                                processedECGData.add(Integer.valueOf(item));
+                                //Log.d("Second",String.valueOf(second));
+                            } else {
+                                startTime = System.currentTimeMillis();
+                                if(processedECGData.size() > 0) {
+                                    result = goAsync();
+                                    new SignalProcessing().execute(processedECGData);
+                                    Log.d("TheData Input", String.valueOf(processedECGData.size()));
+                                }
+                            }
+                        }
                         //graphIt(item, 1);
                     }
                 }
@@ -381,16 +437,14 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
         }
     };
 
-    private void graphIt(String item, int maxDataPoint, int typeGraph) {
-        if(typeGraph == 1) {
-            if (graph2LastXValue >= xView) {
-                graph2LastXValue = 0;
-                ecgGraph.resetData(new DataPoint[]{new DataPoint(graph2LastXValue, Double.parseDouble(item))});
-            } else {
-                graph2LastXValue += 1d;
-            }
-            ecgGraph.appendData(new DataPoint(graph2LastXValue, Double.parseDouble(item)), autoScrollX, maxDataPoint);
+    private void graphIt(String item) {
+        if (graph2LastXValue >= xView) {
+            graph2LastXValue = 0;
+            ecgGraph.resetData(new DataPoint[]{new DataPoint(graph2LastXValue, Double.parseDouble(item))});
+        } else {
+            graph2LastXValue += 1d;
         }
+        ecgGraph.appendData(new DataPoint(graph2LastXValue, Double.parseDouble(item)), autoScrollX, 1000);
     }
 
     // Connect the GATT Servive
@@ -427,11 +481,12 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
         return intentFilter;
     }
 
-    private void getTime(){
+    private int getTime(long startTime){
         long millis = System.currentTimeMillis() - startTime;
         int seconds = (int) (millis / 1000);
         int minutes = seconds / 60;
         seconds     = seconds % 60;
+        return seconds;
     }
 
     @Override
@@ -484,7 +539,7 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
 
         graphView.getGridLabelRenderer().setGridColor(Color.WHITE);
 
-        /*
+
         minX = 0;maxX = 1000;minY = 100;maxY = 500;
 
         makeBorder(graphView,minX,maxX,minY,maxY);
@@ -508,7 +563,7 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
         double tickLengthX = 2;
 
         makeSecondTickX(centerY, minX, maxX, tickWidthX, tickLengthX);
-        */
+
         //new SignalProcessing().execute(sampleECGData);
     }
 
@@ -617,13 +672,35 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
             bluetoothLeService.disconnect();
             Toast.makeText(getApplicationContext(),"Disconnected",Toast.LENGTH_SHORT).show();
         } else if (id == R.id.record) {
+            record = true;
+            processedECGData = new ArrayList<Integer>();
+            File sdCard = Environment.getExternalStorageDirectory();
+            File dir = new File (sdCard.getAbsolutePath());
+            //dir.mkdirs();
+            File file = new File(dir, "/"+fileName+".txt");
+            Log.d("File is", String.valueOf(file));
+
+            try {
+                fw = new FileWriter(file, true);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
             Toast.makeText(getApplicationContext(),"Recording...",Toast.LENGTH_SHORT).show();
         } else if (id == R.id.stoprecord) {
+            record = false;
+            startTime = 0;
+            processedECGData = new ArrayList<Integer>();
+            try {
+                fw.flush();
+                fw.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
             Toast.makeText(getApplicationContext(),"Stopped",Toast.LENGTH_SHORT).show();
         } else if (id == R.id.name_edit) {
             openDialog();
         } else if (id == R.id.browser){
-            new SignalProcessing().execute(sampleECGData);
+            //new SignalProcessing().execute(sampleECGData);
             Toast.makeText(getApplicationContext(),"Browse Folder",Toast.LENGTH_SHORT).show();
         }
 
