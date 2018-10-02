@@ -175,7 +175,10 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
             List<Integer> mECG = new ArrayList<Integer>();
             List<Integer> dataECG = new ArrayList<Integer>();
             List<Double> dataTime = new ArrayList<Double>();
+
+            List<Integer> annECG = new ArrayList<Integer>();
             for (int i = 0; i < dataCount ; i++) {
+                annECG.add(0);
                 dataECG.add(data.get(i));
                 mECG.add(data.get(i));
                 dataTime.add(time.get(i));
@@ -394,6 +397,7 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
                     if(rightBoundT.size() == 1){
                         indT = rightBoundT.get(0);
                         k = false;
+                        Log.d("PD TE","T-End 1");
                     }
 
                     //If the right bound is not found, reduce the Threshold
@@ -401,7 +405,7 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
 
                     //If more than one right bound are found, find the nearest bound to R-Peak + 60 data point
                     if(rightBoundT.size()>1){
-                        int peakRef = peakIndex.get(i) + 60;
+                        int peakRef = 100;
                         int minVal = Math.abs(rightBoundT.get(0)- peakRef); // Keeps a running count of the smallest value so far
                         int minIdx = 0; // Will store the index of minVal
                         for(int idx=1; idx < rightBoundT.size(); idx++) {
@@ -410,7 +414,9 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
                                 minIdx = idx;
                             }
                         }
-                        indT = minIdx;
+                        indT = rightBoundT.get(minIdx);
+                        Log.d("PD TE T-End > 1",String.valueOf(rightBoundT)+" | "+String.valueOf(peakRef)+" | "+String.valueOf(indT));
+                        k = false;
                     }
 
                     //If iteration is more than 10 times
@@ -420,6 +426,7 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
                         k = false;
                         if(i == peakIndex.size()) indT = midWave;
                         else indT = ((peakIndex.get(i+1)+peakIndex.get(i))/2)-peakIndex.get(i);
+                        Log.d("PD TE","T-End Iter");
                     }
                 }
                 //Collect the T-end
@@ -437,11 +444,18 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
             double rrSum = 0.000;
             rrDiv = 0;
             for(int i = 1;i<peakIndex.size()-1;i++){
+                annECG.set(peakIndex.get(i),2);
+                annECG.set(qrsOnset.get(i),1);
                 double rrInt = dataTime.get(peakIndex.get(i)) - dataTime.get(peakIndex.get(i-1));
                 if(rrInt > 0.400 && rrInt < 2.000){
                     rrSum += rrInt;
                     rrDiv += 1;
                 }
+            }
+
+            for(int i = 0;i<peakIndex.size();i++){
+                annECG.set(peakIndex.get(i),2);
+                annECG.set(qrsOnset.get(i),1);
             }
 
             if(rrDiv > 0){
@@ -462,6 +476,7 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
             double qtSum = 0.000;
             qtDiv = 0;
             for(int i = 0;i<endT.size();i++){
+                annECG.set(endT.get(i),3);
                 double qtInt = dataTime.get(endT.get(i)) - dataTime.get(qrsOnset.get(i));
                 if(qtInt > 0.100 && qtInt < 2.000){
                     qtSum += qtInt;
@@ -481,12 +496,11 @@ public class MainQT extends AppCompatActivity implements NavigationView.OnNaviga
                 Log.d("PD","No QT");
             }
 
-
             //Write the result to text file if recording
             if(record) {
                 for (int i = 0; i < ecgData.size() - 1; i++) {
                     try {
-                        printFormat = String.format("%.5f\t%d\t%d\t%d", timeData.get(i), ecgData.get(i), ecgDataR.get(i), posReg.get(i));
+                        printFormat = String.format("%.5f\t%d\t%d\t%d", timeData.get(i), ecgData.get(i), ecgDataR.get(i), annECG.get(i));
                         //printFormat = String.format("%d\t%d\t%d\t%d\t%d\t%d", ecgData.get(i),ecgDataR.get(i),lpValT.get(i),drValT.get(i),sqValT.get(i),mwValT.get(i));
                         Log.d("Print", printFormat);
                         fw.append(printFormat).append("\n");

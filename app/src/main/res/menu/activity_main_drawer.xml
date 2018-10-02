@@ -26,9 +26,8 @@
             android:title="Edit File Name" />
 
         <item
-            android:id="@+id/browser"
+            android:id="@+id/process"
             android:icon="@mipmap/round_folder_open_white_24"
-            android:title="Browse Folder" />
-
+            android:title="Process Data" />
 
 </menu>
